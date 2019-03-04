@@ -7,6 +7,7 @@ import os
 import sys
 import time
 import signal
+from server import util
 
 
 class Worker(object):
@@ -41,9 +42,11 @@ class Worker(object):
 
     def init_process(self):
 
-        self.wait_fds = self.sockets + [self.PIPE[0]]
         self.PIPE = os.pipe()
-
+        self.wait_fds = self.sockets + [self.PIPE[0]]
+        for p in self.PIPE:
+            util.set_non_blocking(p)
+            util.close_on_exec(p)
         self.middleware = self.app.middleware()
         # Enter main run loop
         self.booted = True

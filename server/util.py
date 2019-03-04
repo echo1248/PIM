@@ -3,11 +3,24 @@
 # Create @ 2019/2/26 10:04
 # Author @ 819070918@qq.com
 
+import os
 import re
 import sys
+import fcntl
 import traceback
 from server.workers import SUPPORTED_WORKERS
 from importlib import import_module
+
+
+def close_on_exec(fd):
+    flags = fcntl.fcntl(fd, fcntl.F_GETFD)
+    flags |= fcntl.FD_CLOEXEC
+    fcntl.fcntl(fd, fcntl.F_SETFD, flags)
+
+
+def set_non_blocking(fd):
+    flags = fcntl.fcntl(fd, fcntl.F_GETFL) | os.O_NONBLOCK
+    fcntl.fcntl(fd, fcntl.F_SETFL, flags)
 
 
 def parse_address(netloc, default_port=8000):
@@ -40,10 +53,9 @@ def parse_address(netloc, default_port=8000):
 
 def load_class(uri):
 
-    components = SUPPORTED_WORKERS[uri]
+    components = SUPPORTED_WORKERS[uri].split(".")
 
     klass = components.pop(-1)
-
     try:
         mod = import_module('.'.join(components))
     except:

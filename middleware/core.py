@@ -4,5 +4,9 @@
 # Author @ 819070918@qq.com
 
 
-def application(data, addr):
-    print(data, addr)
+from middleware.msg import process
+
+
+def application(data, sour_addr, callback):
+    process(data, sour_addr, callback)
+

@@ -72,8 +72,9 @@ class Config(object):
         uri = self.settings['worker_class'].get()
 
         is_sync = uri.endswith('SyncWorker') or uri == 'sync'
-        if is_sync and self.threads > 1:
-            uri = "server.workers.gthread.ThreadWorker"
+        # if is_sync and self.threads > 1:
+        #     uri = "server.workers.gthread.ThreadWorker"
+        #
 
         worker_class = util.load_class(uri)
         return worker_class
@@ -188,6 +189,17 @@ class Setting(object):
 Setting = SettingMeta('Setting', (Setting,), {})
 
 
+def validate_pos_int(val):
+    if not isinstance(val, int):
+        val = int(val, 0)
+    else:
+        # Booleans are ints!
+        val = int(val)
+    if val < 0:
+        raise ValueError("Value must be positive: %s" % val)
+    return val
+
+
 def validate_string(val):
     if val is None:
         return None
@@ -284,3 +296,21 @@ class Pidfile(Setting):
         """
 
 
+class Workers(Setting):
+    name = "workers"
+    section = "Worker Processes"
+    cli = ["-w", "--workers"]
+    meta = "INT"
+    validator = validate_pos_int
+    type = int
+    default = int(os.environ.get("WEB_CONCURRENCY", 1))
+    desc = """\
+        The number of worker processes for handling requests.
+
+        A positive integer generally in the ``2-4 x $(NUM_CORES)`` range.
+        You'll want to vary this a bit to find the best for your particular
+        application's work load.
+
+        By default, the value of the ``WEB_CONCURRENCY`` environment variable.
+        If it is not defined, the default is ``1``.
+        """

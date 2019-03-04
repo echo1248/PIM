@@ -3,7 +3,9 @@
 # Create @ 2019/3/1 15:22
 # Author @ 819070918@qq.com
 
+import json
 import socket
+import time
 
 
 def send(client, data):
@@ -18,8 +20,15 @@ def recv(client):
 def main():
 
     client = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    send(client, "hello pim!")
-    recv(client)
+    data = {"data": "hello pim!"}
+    count = 0
+    start = int(time.time())
+    while True:
+        count += 1
+        if count % 10000 == 0:
+            print(count, int(time.time())-start)
+        send(client, bytes(json.dumps(data), encoding="utf8"))
+        recv(client)
 
 
 if __name__ == '__main__':

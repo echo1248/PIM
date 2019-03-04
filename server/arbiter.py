@@ -10,10 +10,11 @@ import random
 import select
 import signal
 import errno
+import traceback
 from server import sock
 from server import SERVER_SOFTWARE
+from server import util
 from server.errors import AppImportError
-from server.pidfile import Pidfile
 
 
 class Arbiter(object):
@@ -34,6 +35,7 @@ class Arbiter(object):
     def __init__(self, app):
         os.environ["SERVER_SOFTWARE"] = SERVER_SOFTWARE
 
+        self.pidfile = None
         self._num_workers = None
         self.worker_age = 0
 
@@ -53,19 +55,36 @@ class Arbiter(object):
 
         self.worker_class = self.cfg.worker_class
         self.address = self.cfg.address
+        self.num_workers = self.cfg.workers
 
     def start(self):
         """
           Initialize the arbiter. Start listening and set pidfile if needed.
         """
         self.pid = os.getpid()
-        if self.cfg.pidfile is not None:
-            pidname = self.cfg.pidfile
-            self.pidfile = Pidfile(pidname)
-            self.pidfile.create(self.pid)
 
-        # self.init_signals()
+        self.init_signals()
+
         self.LISTENERS = sock.create_sockets(self.cfg, None)
+
+    def init_signals(self):
+        """\
+        Initialize master signal handling. Most of the signals
+        are queued. Child signals only wake up the master.
+        """
+        # close old PIPE
+        for p in self.PIPE:
+            os.close(p)
+
+        # initialize the pipe
+        self.PIPE = pair = os.pipe()
+        for p in pair:
+            util.set_non_blocking(p)
+            util.close_on_exec(p)
+
+        # initialize all signals
+        for s in self.SIGNALS:
+            signal.signal(s, self.signal)
 
     def signal(self, sig, frame):
         if len(self.SIG_QUEUE) < 5:
@@ -81,7 +100,6 @@ class Arbiter(object):
             self.manage_workers()
 
             while True:
-
                 sig = self.SIG_QUEUE.pop(0) if self.SIG_QUEUE else None
                 if sig is None:
                     self.sleep()
@@ -102,8 +120,8 @@ class Arbiter(object):
             self.halt()
         except SystemExit:
             raise
-        except Exception:
-            print("Unhandled exception in main loop")
+        except Exception as EX:
+            print("arbiter: error={}, {}".format(EX, traceback.format_exc()))
             if self.pidfile is not None:
                 self.pidfile.unlink()
             sys.exit(-1)
@@ -214,18 +232,13 @@ class Arbiter(object):
 
     def spawn_worker(self):
         self.worker_age += 1
-        worker = self.worker_class(self.worker_age, self.pid, self.LISTENERS,
-                                   self.app, self.cfg, None)
+        worker = self.worker_class(self.worker_age, self.pid, self.LISTENERS, self.app, self.cfg, None)
+
         pid = os.fork()
         if pid != 0:
             worker.pid = pid
             self.WORKERS[pid] = worker
             return pid
-
-        # Do not inherit the temporary files of other workers
-        for sibling in self.WORKERS.values():
-            sibling.tmp.close()
-
         # Process Child
         worker.pid = os.getpid()
         try:
@@ -240,12 +253,6 @@ class Arbiter(object):
             if not worker.booted:
                 sys.exit(self.WORKER_BOOT_ERROR)
             sys.exit(-1)
-        finally:
-            try:
-                worker.tmp.close()
-                self.cfg.worker_exit(self, worker)
-            except:
-                pass
 
     def spawn_workers(self):
         """\
@@ -258,3 +265,8 @@ class Arbiter(object):
         for _ in range(self.num_workers - len(self.WORKERS)):
             self.spawn_worker()
             time.sleep(0.1 * random.random())
+
+    def handle_int(self):
+        "SIGINT handling"
+        self.stop(False)
+        raise StopIteration
